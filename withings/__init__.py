@@ -26,6 +26,7 @@ print "Your last measured weight: %skg" % measures[0].weight
 """
 
 from __future__ import unicode_literals
+from email.message import Message
 
 __title__ = 'withings'
 __version__ = '0.4.0'
@@ -39,10 +40,23 @@ __all__ = [str('WithingsCredentials'), str('WithingsAuth'), str('WithingsApi'),
 import arrow
 import json
 import requests
+import six
 
 from arrow.parser import ParserError
 from datetime import datetime
 from requests_oauthlib import OAuth1, OAuth1Session
+
+
+class WithingsError(Exception):
+    ''' Handle Withings Error '''
+    
+    def __init__(self, response):
+        self.reason = six.text_type(response['error'])
+        self.errorcode = response['status']
+        Exception.__init__(self, self.reason)
+     
+    def __str__(self):
+        return self.reason
 
 
 class WithingsCredentials(object):
@@ -112,24 +126,30 @@ class WithingsApi(object):
         r = self.client.request(method, '/'.join(url_parts), params=params)
         response = json.loads(r.content.decode())
         if response['status'] != 0:
-            raise Exception("Error code %s" % response['status'])
-        return response.get('body', None)
+            raise WithingsError(response)
+        return response
 
     def get_user(self):
         return self.request('user', 'getbyuserid')
 
     def get_activities(self, **kwargs):
         r = self.request('measure', 'getactivity', params=kwargs, version='v2')
-        activities = r['activities'] if 'activities' in r else [r]
-        return [WithingsActivity(act) for act in activities]
+        return r
 
     def get_measures(self, **kwargs):
         r = self.request('measure', 'getmeas', kwargs)
         return WithingsMeasures(r)
+    
+    def get_intraday(self, **kwargs):
+        r = self.request('measure','getintradayactivity', params=kwargs, version='v2')
+        return r
 
     def get_sleep(self, **kwargs):
         r = self.request('sleep', 'get', params=kwargs, version='v2')
         return WithingsSleep(r)
+
+    def get_sleep_summary(self, **kwargs):
+        r = self.request('sleep', 'getsummary', params=kwargs, version='v2')
 
     def subscribe(self, callback_url, comment, **kwargs):
         params = {'callbackurl': callback_url, 'comment': comment}
